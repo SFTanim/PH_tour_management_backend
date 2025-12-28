@@ -7,7 +7,7 @@ export enum Role {
     GUIDE = "GUIDE"
 }
 export interface IAuthProvider {
-    provider: string; // Google, Credential
+    provider: "google" | "credentials"; // Google, Credential
     providerId: string
 }
 
@@ -17,6 +17,7 @@ export enum IsActive {
     BLOCKED = "BLOCKED"
 }
 export interface IUser {
+    _id?: Types.ObjectId
     name: string
     email: string
     password?: string
@@ -27,7 +28,8 @@ export interface IUser {
     isActive?: IsActive
     isVerified?: boolean
     role: Role
-    auths: IAuthProvider[]
     booking?: Types.ObjectId[]
     guides?: Types.ObjectId[]
+    auths: IAuthProvider[]
+    createdAt?: Date
 }

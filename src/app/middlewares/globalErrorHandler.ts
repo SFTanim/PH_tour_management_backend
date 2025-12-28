@@ -5,16 +5,76 @@ import { NextFunction, Request, Response } from 'express';
 import httpStatus from 'http-status-codes';
 import { envVars } from '../config/env';
 import AppError from '../errorHelpers/appError';
+import { handleDuplicateError } from '../helpers/handleDuplicateError';
+import { handleCastError } from '../helpers/handleCastError';
+import { handleZodError } from '../helpers/handleZodError';
+import { handleValidationError } from '../helpers/handleValidationError';
+import { TErrorSources } from '../interfaces/error.types';
+import { deleteImageFromCloudinary } from '../config/cloudinary.config';
+
 
 // Global Error Handler
-export const globalErrorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
+export const globalErrorHandler = async (err: any, req: Request, res: Response, next: NextFunction) => {
+    /**
+     * Mongoose Error
+     * Zod Error
+     * */
+    if (envVars.NODE_ENV === "development") {
+        // eslint-disable-next-line no-console
+        console.log(err)
+    }
+
+    if (req.file) {
+        await deleteImageFromCloudinary(req.file.path)
+    }
+    if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+        const imageUrls = (req.files as Express.Multer.File[])?.map(file => file.path)
+
+        await Promise.all(imageUrls.map(url => deleteImageFromCloudinary(url)))
+    }
+
     let statusCode = 500
     let message = `Something went wrong - from global error handler !! ->> ${err?.errorResponse?.errmsg}`
+    let errorSources: TErrorSources[] = []
 
-    if (err instanceof AppError) {
+
+    // Duplicate email error
+    if (err.code === 11000) {
+        const simplifiedError = handleDuplicateError(err)
+        statusCode = simplifiedError.statusCode
+        message = simplifiedError.message
+    }
+
+    // Cast Error: ObjectId doesn't match error
+    else if (err.name === "CastError") {
+        const simplifiedError = handleCastError(err)
+        statusCode = simplifiedError.statusCode
+        message = simplifiedError.message
+    }
+
+    // Zod Error
+    else if (err.name === "ZodError") {
+        const simplifiedError = handleZodError(err)
+        statusCode = simplifiedError.statusCode
+        message = simplifiedError.message
+        errorSources = simplifiedError.errorSources as TErrorSources[]
+    }
+
+    // Mongoose Validation Error
+    else if (err.name === "ValidationError") {
+        const simplifiedError = handleValidationError(err)
+        statusCode = simplifiedError.statusCode
+        message = simplifiedError.message
+        errorSources = simplifiedError.errorSources as TErrorSources[]
+    }
+
+
+    else if (err instanceof AppError) {
         statusCode = err.statusCode
         message = err.message
-    } else if (err instanceof Error) {
+    }
+
+    else if (err instanceof Error) {
         statusCode = 500
         message = err.message
     }
@@ -22,7 +82,8 @@ export const globalErrorHandler = (err: any, req: Request, res: Response, next: 
     res.status(httpStatus.BAD_REQUEST).json({
         success: false,
         message,
-        error: err,
+        errorSources,
+        err: envVars.NODE_ENV === "development" ? err : null,
         stack: envVars.NODE_ENV === "development" ? err.stack : null
     })
 }
